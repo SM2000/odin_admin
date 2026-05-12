@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(**)",
+      "Write(**)",
+      "Edit(**)",
+      "Glob(**)",
+      "Grep(**)",
+      "Bash(git *)",
+      "Bash(pip *)",
+      "Bash(python *)",
+      "Bash(streamlit *)",
+      "Bash(mkdir *)",
+      "Bash(ls *)",
+      "Bash(cat *)",
+      "Bash(touch *)"
+    ]
+  }
+}
