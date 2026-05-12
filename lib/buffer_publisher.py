@@ -114,7 +114,7 @@ def post_update(
     if now:
         mode = "SHARE_NOW"
     elif scheduled_at:
-        mode = "CUSTOM"
+        mode = "SCHEDULED"
     else:
         mode = "QUEUE"
 

@@ -70,8 +70,8 @@ html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
 
 /* ── Sidebar ── */
 section[data-testid="stSidebar"] {
-    background: linear-gradient(180deg, #0D1F17 0%, #0A1628 100%);
-    border-right: 1px solid #1E3A2A;
+    background: linear-gradient(180deg, #E8F5EE 0%, #EAF2F8 100%);
+    border-right: 1px solid #C6E2D4;
 }
 
 /* ── Buttons ── */
@@ -83,9 +83,9 @@ section[data-testid="stSidebar"] {
 }
 .stButton > button:hover {
     transform: translateY(-1px);
-    box-shadow: 0 4px 14px rgba(5, 150, 105, 0.35);
+    box-shadow: 0 4px 14px rgba(5, 150, 105, 0.25);
 }
-/* Primary buttons → emerald */
+/* Primary buttons → emerald-to-blue gradient */
 .stButton > button[kind="primary"] {
     background: linear-gradient(135deg, #059669 0%, #0284C7 100%);
     border: none;
@@ -94,78 +94,71 @@ section[data-testid="stSidebar"] {
 .stButton > button[kind="primary"]:hover {
     background: linear-gradient(135deg, #047857 0%, #0369A1 100%);
 }
-/* Secondary buttons → outlined teal */
+/* Secondary buttons → outlined green */
 .stButton > button[kind="secondary"] {
     border: 1.5px solid #059669;
-    color: #6EE7B7;
+    color: #047857;
     background: transparent;
 }
 .stButton > button[kind="secondary"]:hover {
-    background: rgba(5, 150, 105, 0.12);
-    box-shadow: 0 3px 10px rgba(5, 150, 105, 0.2);
+    background: rgba(5, 150, 105, 0.08);
 }
 
 /* ── Form card ── */
 div[data-testid="stForm"] {
-    background: rgba(31, 41, 55, 0.7);
-    border: 1px solid rgba(5, 150, 105, 0.25);
+    background: #fff;
+    border: 1px solid #C6E2D4;
     border-radius: 14px;
     padding: 1.6rem 1.8rem;
-    backdrop-filter: blur(4px);
+    box-shadow: 0 2px 8px rgba(5, 150, 105, 0.06);
 }
 
 /* ── Tabs ── */
 .stTabs [data-baseweb="tab-list"] {
     gap: 6px;
-    background: #1F2937;
+    background: #E8F5EE;
     padding: 5px;
     border-radius: 10px;
-    border: 1px solid #374151;
+    border: 1px solid #C6E2D4;
 }
 .stTabs [data-baseweb="tab"] {
     border-radius: 7px;
     padding: 7px 16px;
     font-weight: 500;
     font-size: 0.85rem;
-    color: #9CA3AF;
+    color: #6B7280;
 }
 .stTabs [aria-selected="true"] {
-    background: linear-gradient(135deg, #065F46 0%, #1E3A5F 100%) !important;
-    color: #6EE7B7 !important;
+    background: linear-gradient(135deg, #059669 0%, #0284C7 100%) !important;
+    color: #fff !important;
 }
 
 /* ── Expanders ── */
 details {
-    border: 1px solid rgba(5, 150, 105, 0.2) !important;
+    border: 1px solid #C6E2D4 !important;
     border-radius: 10px !important;
-    background: rgba(31, 41, 55, 0.5) !important;
+    background: #fff !important;
 }
-details summary {
-    font-weight: 600;
-    color: #6EE7B7;
-}
+details summary { font-weight: 600; color: #047857; }
 
 /* ── Inputs ── */
 div[data-testid="stTextInput"] input,
-div[data-testid="stTextArea"] textarea,
-div[data-testid="stSelectbox"] > div {
+div[data-testid="stTextArea"] textarea {
     border-radius: 8px !important;
-    border-color: #374151 !important;
-    background: #111827 !important;
+    border-color: #C6E2D4 !important;
+    background: #fff !important;
 }
 div[data-testid="stTextInput"] input:focus,
 div[data-testid="stTextArea"] textarea:focus {
     border-color: #059669 !important;
-    box-shadow: 0 0 0 2px rgba(5, 150, 105, 0.2) !important;
+    box-shadow: 0 0 0 2px rgba(5, 150, 105, 0.15) !important;
 }
 
 /* ── Alerts ── */
-div[data-testid="stAlert"] {
-    border-radius: 10px;
-}
+div[data-testid="stAlert"] { border-radius: 10px; }
 
 /* ── Dividers ── */
-hr { border-color: #1E3A2A !important; margin: 1.2rem 0 !important; }
+hr { border-color: #C6E2D4 !important; margin: 1.2rem 0 !important; }
 
 /* ── Images ── */
 img { border-radius: 10px; }
@@ -179,15 +172,9 @@ div[data-testid="stProgressBar"] > div > div {
     border-radius: 99px;
 }
 
-/* ── Checkboxes ── */
-label[data-testid="stCheckbox"] span { color: #6EE7B7; }
-
-/* ── Radio ── */
-div[data-testid="stRadio"] label { cursor: pointer; }
-
 /* ── File uploader ── */
 div[data-testid="stFileUploader"] {
-    border: 2px dashed #374151;
+    border: 2px dashed #C6E2D4;
     border-radius: 10px;
     padding: 0.5rem;
     transition: border-color 0.2s;
@@ -200,12 +187,11 @@ with st.sidebar:
     st.markdown("""
     <div style="padding: 1rem 0 0.5rem;">
         <div style="font-size:2rem;">🦌</div>
-        <div style="font-size:1.2rem;font-weight:700;color:#6EE7B7;margin-top:4px;">HuntWithOdin</div>
+        <div style="font-size:1.2rem;font-weight:700;color:#047857;margin-top:4px;">HuntWithOdin</div>
         <div style="font-size:0.8rem;color:#6B7280;letter-spacing:1.5px;text-transform:uppercase;margin-top:2px;">Ad Creator</div>
     </div>
     """, unsafe_allow_html=True)
     st.divider()
-    st.caption("Powered by Claude Opus · Anthropic")
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
