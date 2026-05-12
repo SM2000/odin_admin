@@ -65,7 +65,7 @@ def get_scheduled_posts(channel_ids: list[str]) -> list[dict]:
             id
             text
             status
-            scheduledAt
+            dueAt
             channel {
               id
               name
@@ -86,7 +86,7 @@ def get_scheduled_posts(channel_ids: list[str]) -> list[dict]:
             # Skip channels that error — still show others
             continue
     # Sort by scheduledAt ascending
-    results.sort(key=lambda p: p.get("scheduledAt") or "")
+    results.sort(key=lambda p: p.get("dueAt") or "")
     return results
 
 
@@ -112,11 +112,11 @@ def post_update(
     }
     """
     if now:
-        mode = "SHARE_NOW"
+        share_mode = "shareNow"
     elif scheduled_at:
-        mode = "SCHEDULED"
+        share_mode = "customScheduled"
     else:
-        mode = "QUEUE"
+        share_mode = "addToQueue"
 
     assets = []
     if image_url:
@@ -128,13 +128,13 @@ def post_update(
             "input": {
                 "channelId": channel_id,
                 "text": text,
-                "schedulingType": mode,
+                "schedulingType": "automatic",
+                "mode": share_mode,
+                "assets": assets,
             }
         }
-        if assets:
-            variables["input"]["assets"] = assets
         if scheduled_at:
-            variables["input"]["scheduledAt"] = scheduled_at
+            variables["input"]["dueAt"] = scheduled_at
 
         data = _gql(mutation, variables)
         payload = data.get("createPost", {})
