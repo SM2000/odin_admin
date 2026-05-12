@@ -1,7 +1,7 @@
 import os
 import requests
 import streamlit as st
-from dotenv import load_dotenv, dotenv_values
+from dotenv import load_dotenv
 
 load_dotenv()
 
@@ -10,159 +10,21 @@ from lib.image_fetcher import fetch_images
 from lib.ad_previewer import render_facebook_preview
 from lib.buffer_publisher import get_profiles, post_update
 
-ENV_PATH = os.path.join(os.path.dirname(__file__), ".env")
-
 st.set_page_config(
     page_title="HuntWithOdin · Ad Creator",
     page_icon="🦌",
     layout="wide",
 )
 
-# ── Sidebar navigation ────────────────────────────────────────────────────────
 with st.sidebar:
     st.markdown("## 🦌 HuntWithOdin\n### Ad Creator")
     st.divider()
-    page = st.radio("Navigation", ["Create Ads", "API Settings"], label_visibility="collapsed")
-    st.divider()
     st.caption("Powered by Claude · Anthropic")
 
-# ══════════════════════════════════════════════════════════════════════════════
-# PAGE: API SETTINGS
-# ══════════════════════════════════════════════════════════════════════════════
-if page == "API Settings":
-    st.title("API Settings")
-    st.markdown(
-        "Keys are saved to a local `.env` file on this machine and are never "
-        "transmitted anywhere other than the respective services."
-    )
-
-    on_render = bool(os.getenv("RENDER"))
-    if on_render:
-        st.info(
-            "Running on Render — set API keys in the Render dashboard under "
-            "**Environment → Environment Variables**. Keys saved here won't persist across restarts.",
-            icon="☁️",
-        )
-
-    current = dotenv_values(ENV_PATH) if os.path.exists(ENV_PATH) else {}
-
-    def _get(key: str) -> str:
-        return current.get(key) or os.getenv(key) or ""
-
-    st.subheader("Claude (Anthropic)")
-    anthropic_key = st.text_input(
-        "ANTHROPIC_API_KEY", value=_get("ANTHROPIC_API_KEY"), type="password",
-        help="console.anthropic.com",
-    )
-
-    st.subheader("Images")
-    col1, col2 = st.columns(2)
-    with col1:
-        pexels_key = st.text_input(
-            "PEXELS_API_KEY", value=_get("PEXELS_API_KEY"), type="password",
-            help="pexels.com/api — free",
-        )
-    with col2:
-        unsplash_key = st.text_input(
-            "UNSPLASH_ACCESS_KEY", value=_get("UNSPLASH_ACCESS_KEY"), type="password",
-            help="unsplash.com/developers — free",
-        )
-
-    st.subheader("Buffer")
-    st.caption(
-        "Buffer now uses a new GraphQL API. Get your key at "
-        "**publish.buffer.com/settings/api** → copy the API key shown there. "
-        "This is different from the old developer app token."
-    )
-    buffer_token = st.text_input(
-        "BUFFER_ACCESS_TOKEN", value=_get("BUFFER_ACCESS_TOKEN"), type="password",
-    )
-
-    if st.button("💾 Save Settings", type="primary"):
-        lines = [
-            f"ANTHROPIC_API_KEY={anthropic_key}",
-            f"PEXELS_API_KEY={pexels_key}",
-            f"UNSPLASH_ACCESS_KEY={unsplash_key}",
-            f"BUFFER_ACCESS_TOKEN={buffer_token}",
-        ]
-        with open(ENV_PATH, "w") as f:
-            f.write("\n".join(lines) + "\n")
-        for line in lines:
-            k, _, v = line.partition("=")
-            if v:
-                os.environ[k] = v
-        st.success("Settings saved and active for this session.")
-
-    st.divider()
-    st.subheader("Test connections")
-    tcol1, tcol2, tcol3 = st.columns(3)
-
-    with tcol1:
-        if st.button("Test Claude"):
-            key = os.getenv("ANTHROPIC_API_KEY") or anthropic_key
-            if not key:
-                st.error("No key.")
-            else:
-                try:
-                    import anthropic
-                    c = anthropic.Anthropic(api_key=key)
-                    c.messages.create(
-                        model="claude-haiku-4-5-20251001", max_tokens=5,
-                        messages=[{"role": "user", "content": "Hi"}],
-                    )
-                    st.success("Claude ✓")
-                except Exception as e:
-                    st.error(str(e))
-
-    with tcol2:
-        if st.button("Test Pexels"):
-            key = os.getenv("PEXELS_API_KEY") or pexels_key
-            if not key:
-                st.error("No key.")
-            else:
-                r = requests.get(
-                    "https://api.pexels.com/v1/search",
-                    headers={"Authorization": key},
-                    params={"query": "hunting", "per_page": 1},
-                    timeout=8,
-                )
-                st.success("Pexels ✓") if r.ok else st.error(f"{r.status_code}")
-
-    with tcol3:
-        if st.button("Test Buffer"):
-            token = os.getenv("BUFFER_ACCESS_TOKEN") or buffer_token
-            if not token:
-                st.error("No token.")
-            else:
-                r = requests.post(
-                    "https://api.buffer.com/graphql",
-                    headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
-                    json={"query": "query { channels { id name service } }"},
-                    timeout=8,
-                )
-                if r.ok:
-                    data = r.json()
-                    if "errors" in data:
-                        st.error(data["errors"][0]["message"])
-                    else:
-                        channels = [c for c in data.get("data", {}).get("channels", [])
-                                    if c.get("service") in ("facebook", "instagram")]
-                        st.success(f"Buffer ✓  ({len(channels)} FB/IG channel(s))")
-                else:
-                    st.error(f"{r.status_code}: {r.text[:120]}")
-
-    st.stop()
-
-# ══════════════════════════════════════════════════════════════════════════════
-# PAGE: CREATE ADS
-# ══════════════════════════════════════════════════════════════════════════════
-if not os.getenv("ANTHROPIC_API_KEY"):
-    st.warning("⚠️ Anthropic API key not set — go to **API Settings**.", icon="🔑")
-
+# ── Campaign inputs ───────────────────────────────────────────────────────────
 st.title("HuntWithOdin · Ad Creator")
 st.markdown("Describe your campaign and Claude will write three scroll-stopping ad variations.")
 
-# ── Campaign inputs ───────────────────────────────────────────────────────────
 with st.form("campaign_form"):
     c1, c2, c3 = st.columns(3)
     with c1:
@@ -201,8 +63,6 @@ with st.form("campaign_form"):
     )
     has_image_keys = bool(os.getenv("PEXELS_API_KEY") or os.getenv("UNSPLASH_ACCESS_KEY"))
     num_images = st.slider("Images per variation", 1, 4, 2) if has_image_keys else 0
-    if not has_image_keys:
-        st.caption("💡 Add Pexels or Unsplash keys in **API Settings** to fetch real images.")
     submitted = st.form_submit_button("✨ Generate Ad Variations", type="primary", use_container_width=True)
 
 # ── Session state ─────────────────────────────────────────────────────────────
@@ -212,10 +72,6 @@ for key in ("variations", "images_by_variation", "selected_variation"):
 
 # ── Generation ────────────────────────────────────────────────────────────────
 if submitted:
-    if not os.getenv("ANTHROPIC_API_KEY"):
-        st.error("Set your Anthropic API key in API Settings first.")
-        st.stop()
-
     with st.spinner("Claude is writing your ad variations…"):
         try:
             variations = generate_ad_variations(goal, audience, ad_format, angle_notes, platform)
@@ -275,7 +131,6 @@ if st.session_state.variations:
                     key=f"cta_{i}",
                 )
 
-                # Assemble the post text (what actually goes into Buffer)
                 post_text = f"{primary}\n\n👉 {headline}\n\nhuntwithOdin.com"
 
                 if st.button(f"Select Variation {i+1} for Publishing", key=f"select_{i}", type="secondary"):
@@ -299,8 +154,6 @@ if st.session_state.variations:
                     img_idx = img_labels.index(chosen)
                     selected_img_url = imgs[img_idx]["url"]
                     st.image(selected_img_url, use_container_width=True)
-                else:
-                    st.caption("No images — add Pexels or Unsplash keys in API Settings.")
 
                 preview_variation = {
                     "primary_text": st.session_state.get(f"primary_{i}", variation.get("primary_text", "")),
@@ -319,24 +172,20 @@ if st.session_state.variations:
     selected = st.session_state.selected_variation
     if not selected:
         st.info("Select a variation above to publish it.")
-    elif not os.getenv("BUFFER_ACCESS_TOKEN"):
-        st.warning("Add your Buffer access token in **API Settings** to post directly.")
-        st.markdown("**Post text (copy manually):**")
-        st.code(selected["post_text"], language=None)
     else:
         st.markdown(f"**Publishing:** Variation {selected['index']+1}")
 
         try:
             profiles = get_profiles()
         except Exception as e:
-            st.error(f"Could not load Buffer profiles: {e}")
+            st.error(f"Could not load Buffer channels: {e}")
             profiles = []
 
         if not profiles:
-            st.warning("No Facebook or Instagram profiles found in your Buffer account.")
+            st.warning("No Facebook or Instagram channels found in your Buffer account.")
         else:
             profile_options = {
-                f"{p.get('service','').title()} · {p.get('formatted_username', p.get('id',''))}": p["id"]
+                f"{p.get('service','').title()} · {p.get('name', p.get('id',''))}": p["id"]
                 for p in profiles
             }
             chosen_profiles = st.multiselect(
@@ -345,7 +194,6 @@ if st.session_state.variations:
             )
             selected_profile_ids = [profile_options[k] for k in chosen_profiles]
 
-            # Image selection for publish
             pub_img_url = None
             if selected["images"]:
                 pub_img_labels = [f"Image {j+1} ({img['source']})" for j, img in enumerate(selected["images"])]
@@ -354,7 +202,6 @@ if st.session_state.variations:
                 pub_img_url = selected["images"][pub_img_idx]["url"]
 
             post_now = st.checkbox("Post immediately (skip queue)", value=False)
-            scheduled_at = None
             if not post_now:
                 st.caption("The post will be added to your Buffer queue at its next scheduled slot.")
 
