@@ -105,12 +105,8 @@ def post_update(
           post {
             id
             status
-            scheduledAt
             text
           }
-        }
-        ... on PostActionError {
-          message
         }
       }
     }
@@ -142,8 +138,8 @@ def post_update(
 
         data = _gql(mutation, variables)
         payload = data.get("createPost", {})
-        if payload.get("__typename") == "PostActionError":
-            raise RuntimeError(payload.get("message", "Buffer returned an error."))
+        if payload.get("__typename") != "PostActionSuccess":
+            raise RuntimeError(f"Buffer returned unexpected response: {payload.get('__typename')}")
         results.append(payload.get("post", {}))
 
     return {"posts": results}
