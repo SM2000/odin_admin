@@ -16,8 +16,8 @@ HuntWithOdin context:
 Always write like a hunter talking to another hunter. No corporate speak. Be specific. Be bold.
 Return ONLY valid JSON."""
 
-# Try Sonnet first; fall back to Haiku if Sonnet is overloaded.
-_MODELS = ["claude-sonnet-4-6", "claude-haiku-4-5-20251001"]
+# Try Opus first; fall back to Sonnet, then Haiku if overloaded.
+_MODELS = ["claude-opus-4-7", "claude-sonnet-4-6", "claude-haiku-4-5-20251001"]
 
 
 def generate_ad_variations(
