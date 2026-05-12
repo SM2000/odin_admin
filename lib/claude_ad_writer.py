@@ -1,5 +1,3 @@
-import json
-import re
 import anthropic
 
 SYSTEM_PROMPT = """You are a performance marketing expert specialising in Facebook and Instagram ads
@@ -14,26 +12,38 @@ HuntWithOdin context:
 - Key features: hotspot suggestions, scratchpad, advanced filters, saved searches
 - Audience: serious hunters who want an edge — elk, deer, mule deer, pronghorn, bear, turkey
 
-Always write like a hunter talking to another hunter. No corporate speak. Be specific. Be bold.
-Return ONLY valid JSON."""
+Always write like a hunter talking to another hunter. No corporate speak. Be specific. Be bold."""
 
-# Try Opus first; fall back to Sonnet, then Haiku if overloaded.
 _MODELS = ["claude-opus-4-7", "claude-sonnet-4-6", "claude-haiku-4-5-20251001"]
 
-
-def _extract_json(text: str) -> str:
-    """Extract and clean a JSON object from Claude's raw response."""
-    # Unwrap markdown code fences
-    fence = re.search(r"```(?:json)?\s*([\s\S]*?)\s*```", text)
-    if fence:
-        text = fence.group(1)
-    # Isolate the outermost { ... }
-    start, end = text.find("{"), text.rfind("}")
-    if start != -1 and end != -1:
-        text = text[start : end + 1]
-    # Remove trailing commas before ] or } (common Opus quirk)
-    text = re.sub(r",\s*([}\]])", r"\1", text)
-    return text
+_TOOL = {
+    "name": "output_ad_variations",
+    "description": "Output the three ad copy variations as structured data.",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "variations": {
+                "type": "array",
+                "minItems": 3,
+                "maxItems": 3,
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "angle":              {"type": "string"},
+                        "primary_text":       {"type": "string"},
+                        "headline":           {"type": "string"},
+                        "description":        {"type": "string"},
+                        "cta":                {"type": "string", "enum": ["Learn More", "Download", "Sign Up", "Get Started", "Try Free", "Shop Now"]},
+                        "image_search_query": {"type": "string"},
+                        "hook":               {"type": "string"},
+                    },
+                    "required": ["angle", "primary_text", "headline", "description", "cta", "image_search_query", "hook"],
+                },
+            }
+        },
+        "required": ["variations"],
+    },
+}
 
 
 def generate_ad_variations(
@@ -44,11 +54,11 @@ def generate_ad_variations(
     platform: str,
 ) -> list[dict]:
     char_limits = {
-        "Facebook Feed": {"primary": 125, "headline": 40, "description": 30},
-        "Instagram Feed": {"primary": 125, "headline": 40, "description": 30},
-        "Facebook Story": {"primary": 72, "headline": 40, "description": 0},
-        "Instagram Story": {"primary": 72, "headline": 40, "description": 0},
-        "Carousel": {"primary": 125, "headline": 40, "description": 20},
+        "Facebook Feed":    {"primary": 125, "headline": 40, "description": 30},
+        "Instagram Feed":   {"primary": 125, "headline": 40, "description": 30},
+        "Facebook Story":   {"primary": 72,  "headline": 40, "description": 0},
+        "Instagram Story":  {"primary": 72,  "headline": 40, "description": 0},
+        "Carousel":         {"primary": 125, "headline": 40, "description": 20},
     }
     limits = char_limits.get(format, char_limits["Facebook Feed"])
 
@@ -64,25 +74,12 @@ Character targets:
 - Headline: ~{limits["headline"]} chars
 - Description: ~{limits["description"]} chars (0 = not used for this format)
 
-Each variation should use a distinctly different angle:
+Each variation must use a distinctly different angle:
 1. Pain point / frustration angle
 2. Authority / data / expert angle
 3. FOMO / season urgency angle
 
-Return JSON with this exact structure:
-{{
-  "variations": [
-    {{
-      "angle": "Short angle name",
-      "primary_text": "The ad body copy. Can use line breaks. Emojis OK if authentic.",
-      "headline": "Short punchy headline",
-      "description": "Brief description line (blank string if not used)",
-      "cta": "One of: Learn More, Download, Sign Up, Get Started, Try Free, Shop Now",
-      "image_search_query": "3-6 word search query for a hunting/outdoor photo that matches this ad",
-      "hook": "First sentence only — the scroll-stopper"
-    }}
-  ]
-}}"""
+Call the output_ad_variations tool with all three variations."""
 
     client = anthropic.Anthropic(max_retries=3)
     last_error: Exception | None = None
@@ -93,17 +90,19 @@ Return JSON with this exact structure:
                 model=model,
                 max_tokens=2048,
                 system=SYSTEM_PROMPT,
+                tools=[_TOOL],
+                tool_choice={"type": "tool", "name": "output_ad_variations"},
                 messages=[{"role": "user", "content": prompt}],
             )
-            raw = message.content[0].text.strip()
-            data = json.loads(_extract_json(raw))
-            return data.get("variations", [])
-
+            for block in message.content:
+                if block.type == "tool_use" and block.name == "output_ad_variations":
+                    return block.input.get("variations", [])
+            raise RuntimeError("Model did not call the output tool.")
 
         except anthropic.APIStatusError as e:
             if e.status_code == 529:
                 last_error = e
-                continue  # try next model
+                continue
             raise
         except anthropic.APIConnectionError as e:
             last_error = e
