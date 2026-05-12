@@ -65,7 +65,7 @@ Return JSON with this exact structure:
   ]
 }}"""
 
-    client = anthropic.Anthropic()
+    client = anthropic.Anthropic(max_retries=4)
     message = client.messages.create(
         model="claude-sonnet-4-6",
         max_tokens=2048,
