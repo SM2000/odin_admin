@@ -69,9 +69,13 @@ if page == "API Settings":
         )
 
     st.subheader("Buffer")
+    st.caption(
+        "Buffer now uses a new GraphQL API. Get your key at "
+        "**publish.buffer.com/settings/api** → copy the API key shown there. "
+        "This is different from the old developer app token."
+    )
     buffer_token = st.text_input(
         "BUFFER_ACCESS_TOKEN", value=_get("BUFFER_ACCESS_TOKEN"), type="password",
-        help="buffer.com/developers/apps — create an app and copy the Access Token",
     )
 
     if st.button("💾 Save Settings", type="primary"):
@@ -130,14 +134,20 @@ if page == "API Settings":
             if not token:
                 st.error("No token.")
             else:
-                r = requests.get(
-                    "https://api.bufferapp.com/1/profiles.json",
-                    params={"access_token": token},
+                r = requests.post(
+                    "https://api.buffer.com/graphql",
+                    headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+                    json={"query": "query { channels { id name service } }"},
                     timeout=8,
                 )
                 if r.ok:
-                    profiles = [p for p in r.json() if p.get("service") in ("facebook", "instagram")]
-                    st.success(f"Buffer ✓  ({len(profiles)} FB/IG profile(s))")
+                    data = r.json()
+                    if "errors" in data:
+                        st.error(data["errors"][0]["message"])
+                    else:
+                        channels = [c for c in data.get("data", {}).get("channels", [])
+                                    if c.get("service") in ("facebook", "instagram")]
+                        st.success(f"Buffer ✓  ({len(channels)} FB/IG channel(s))")
                 else:
                     st.error(f"{r.status_code}: {r.text[:120]}")
 

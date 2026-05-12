@@ -1,26 +1,46 @@
 import os
 import requests
 
-BASE = "https://api.bufferapp.com/1"
+GRAPHQL_ENDPOINT = "https://api.buffer.com/graphql"
 
 
-def _token() -> str:
-    return os.getenv("BUFFER_ACCESS_TOKEN", "")
+def _headers() -> dict:
+    token = os.getenv("BUFFER_ACCESS_TOKEN", "")
+    return {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+    }
 
 
-def get_profiles() -> list[dict]:
-    resp = requests.get(
-        f"{BASE}/profiles.json",
-        params={"access_token": _token()},
+def get_channels() -> list[dict]:
+    query = """
+    query GetChannels {
+      channels {
+        id
+        name
+        service
+        serviceType
+        avatar
+      }
+    }
+    """
+    resp = requests.post(
+        GRAPHQL_ENDPOINT,
+        headers=_headers(),
+        json={"query": query},
         timeout=10,
     )
     resp.raise_for_status()
-    profiles = resp.json()
-    # Return only Facebook and Instagram profiles
-    return [
-        p for p in profiles
-        if p.get("service") in ("facebook", "instagram")
-    ]
+    data = resp.json()
+    if "errors" in data:
+        raise RuntimeError(data["errors"][0]["message"])
+    channels = data.get("data", {}).get("channels", [])
+    return [c for c in channels if c.get("service") in ("facebook", "instagram")]
+
+
+# Keep old name so app.py import doesn't break
+def get_profiles() -> list[dict]:
+    return get_channels()
 
 
 def post_update(
@@ -30,32 +50,55 @@ def post_update(
     scheduled_at: str | None = None,
     now: bool = False,
 ) -> dict:
-    """
-    Post or schedule an update via Buffer.
-    scheduled_at: ISO 8601 string e.g. "2026-05-13T10:00:00Z"
-    now=True posts immediately, bypassing the queue.
-    """
-    data: dict = {
-        "access_token": _token(),
-        "text": text,
-        "now": "true" if now else "false",
+    """Post or queue an update to each channel via the Buffer GraphQL API."""
+    mutation = """
+    mutation CreatePost($input: CreatePostInput!) {
+      createPost(input: $input) {
+        post {
+          id
+          status
+          text
+        }
+        errors {
+          message
+        }
+      }
     }
-    for pid in profile_ids:
-        data.setdefault("profile_ids[]", [])
-        if isinstance(data["profile_ids[]"], list):
-            data["profile_ids[]"].append(pid)
+    """
 
+    mode = "SHARE_NOW" if now else "QUEUE"
+    results = []
+
+    assets = []
     if image_url:
-        data["media[photo]"] = image_url
-        data["media[thumbnail]"] = image_url
+        assets = [{"image": {"url": image_url, "thumbnailUrl": image_url}}]
 
-    if scheduled_at and not now:
-        data["scheduled_at"] = scheduled_at
+    for channel_id in profile_ids:
+        variables: dict = {
+            "input": {
+                "channelId": channel_id,
+                "text": text,
+                "schedulingType": mode,
+            }
+        }
+        if assets:
+            variables["input"]["assets"] = assets
+        if scheduled_at and not now:
+            variables["input"]["scheduledAt"] = scheduled_at
 
-    resp = requests.post(
-        f"{BASE}/updates/create.json",
-        data=data,
-        timeout=15,
-    )
-    resp.raise_for_status()
-    return resp.json()
+        resp = requests.post(
+            GRAPHQL_ENDPOINT,
+            headers=_headers(),
+            json={"query": mutation, "variables": variables},
+            timeout=15,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        if "errors" in data:
+            raise RuntimeError(data["errors"][0]["message"])
+        payload = data.get("data", {}).get("createPost", {})
+        if payload.get("errors"):
+            raise RuntimeError(payload["errors"][0]["message"])
+        results.append(payload.get("post", {}))
+
+    return {"posts": results}
