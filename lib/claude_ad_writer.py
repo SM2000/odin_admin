@@ -1,4 +1,5 @@
 import json
+import re
 import anthropic
 
 SYSTEM_PROMPT = """You are a performance marketing expert specialising in Facebook and Instagram ads
@@ -18,6 +19,21 @@ Return ONLY valid JSON."""
 
 # Try Opus first; fall back to Sonnet, then Haiku if overloaded.
 _MODELS = ["claude-opus-4-7", "claude-sonnet-4-6", "claude-haiku-4-5-20251001"]
+
+
+def _extract_json(text: str) -> str:
+    """Extract and clean a JSON object from Claude's raw response."""
+    # Unwrap markdown code fences
+    fence = re.search(r"```(?:json)?\s*([\s\S]*?)\s*```", text)
+    if fence:
+        text = fence.group(1)
+    # Isolate the outermost { ... }
+    start, end = text.find("{"), text.rfind("}")
+    if start != -1 and end != -1:
+        text = text[start : end + 1]
+    # Remove trailing commas before ] or } (common Opus quirk)
+    text = re.sub(r",\s*([}\]])", r"\1", text)
+    return text
 
 
 def generate_ad_variations(
@@ -80,12 +96,9 @@ Return JSON with this exact structure:
                 messages=[{"role": "user", "content": prompt}],
             )
             raw = message.content[0].text.strip()
-            if raw.startswith("```"):
-                raw = raw.split("```")[1]
-                if raw.startswith("json"):
-                    raw = raw[4:]
-            data = json.loads(raw.strip())
+            data = json.loads(_extract_json(raw))
             return data.get("variations", [])
+
 
         except anthropic.APIStatusError as e:
             if e.status_code == 529:
