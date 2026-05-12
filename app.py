@@ -1,6 +1,8 @@
 import os
+import uuid
 import requests
 import streamlit as st
+from pathlib import Path
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -8,7 +10,12 @@ load_dotenv()
 from lib.claude_ad_writer import generate_ad_variations
 from lib.image_fetcher import fetch_images
 from lib.ad_previewer import render_facebook_preview
-from lib.buffer_publisher import get_profiles, post_update
+from lib.buffer_publisher import get_profiles, post_update, get_scheduled_posts
+
+STATIC_UPLOADS = Path(__file__).parent / "static" / "uploads"
+STATIC_UPLOADS.mkdir(parents=True, exist_ok=True)
+
+APP_BASE_URL = os.getenv("APP_BASE_URL", "http://localhost:8501").rstrip("/")
 
 st.set_page_config(
     page_title="HuntWithOdin · Ad Creator",
@@ -21,10 +28,53 @@ with st.sidebar:
     st.divider()
     st.caption("Powered by Claude · Anthropic")
 
+
+# ── Helpers ───────────────────────────────────────────────────────────────────
+
+def _save_upload(uploaded_file) -> str:
+    """Save an uploaded file to static/uploads and return its public URL."""
+    ext = Path(uploaded_file.name).suffix.lower() or ".jpg"
+    filename = f"{uuid.uuid4().hex}{ext}"
+    (STATIC_UPLOADS / filename).write_bytes(uploaded_file.getvalue())
+    return f"{APP_BASE_URL}/app/static/uploads/{filename}"
+
+
+def _image_pool(ad_idx: int, fetched: list[dict]) -> list[dict]:
+    """Return combined pool: fetched images + any uploads for this ad."""
+    uploads = list(st.session_state.get(f"uploads_{ad_idx}", {}).values())
+    return fetched + uploads
+
+
+def _image_labels(images: list[dict]) -> list[str]:
+    labels, counts = [], {}
+    for img in images:
+        src = img["source"]
+        counts[src] = counts.get(src, 0) + 1
+        if src in ("Pexels", "Unsplash"):
+            labels.append(f"{src} · Image {counts[src]}")
+        elif src == "Upload":
+            labels.append(f"Uploaded · {img.get('alt', 'photo')[:22]}")
+        else:
+            labels.append("Custom URL")
+    return labels
+
+
+def _resolve_img_url(ad_idx: int, fetched: list[dict]) -> str | None:
+    pool = _image_pool(ad_idx, fetched)
+    custom = st.session_state.get(f"custom_url_{ad_idx}", "").strip()
+    if custom:
+        pool = pool + [{"url": custom, "source": "URL", "alt": "Custom URL"}]
+    labels = _image_labels(pool)
+    selected = st.session_state.get(f"img_select_{ad_idx}")
+    if selected and selected in labels:
+        return pool[labels.index(selected)]["url"]
+    return pool[0]["url"] if pool else None
+
+
+# ── Campaign form ─────────────────────────────────────────────────────────────
 st.title("HuntWithOdin · Ad Creator")
 st.markdown("Select your formats and Claude will write three scroll-stopping variations for each.")
 
-# ── Campaign form ─────────────────────────────────────────────────────────────
 with st.form("campaign_form"):
     c1, c2 = st.columns(2)
     with c1:
@@ -91,17 +141,15 @@ if submitted:
             st.stop()
 
         for v in variations:
-            imgs = []
-            if num_images > 0:
-                imgs = fetch_images(v.get("image_search_query", "hunting outdoor wildlife"), num_images)
-            all_ads.append({
-                "format": fmt,
-                "variation": v,
-                "images": imgs,
-            })
+            imgs = fetch_images(v.get("image_search_query", "hunting outdoor wildlife"), num_images) if num_images > 0 else []
+            all_ads.append({"format": fmt, "variation": v, "images": imgs})
 
     progress.empty()
     st.session_state.ads = all_ads
+    # Clear per-ad upload caches when new ads are generated
+    for k in list(st.session_state.keys()):
+        if k.startswith("uploads_") or k.startswith("custom_url_") or k.startswith("img_select_"):
+            del st.session_state[k]
     st.success(f"Generated {len(all_ads)} ads across {len(ad_formats)} format(s)!")
 
 # ── Display ads ───────────────────────────────────────────────────────────────
@@ -119,7 +167,7 @@ if st.session_state.ads:
 
     for i, (tab, ad) in enumerate(zip(tabs, ads)):
         variation = ad["variation"]
-        imgs = ad["images"]
+        fetched = ad["images"]
 
         with tab:
             col_copy, col_preview = st.columns([1, 1])
@@ -148,42 +196,49 @@ if st.session_state.ads:
                 )
 
             with col_preview:
-                # ── Image picker ──────────────────────────────────────────────
-                selected_img_url = None
-
-                if imgs:
-                    st.markdown("**Fetched images**")
-                    img_labels = [f"Image {j+1} · {img['source']}" for j, img in enumerate(imgs)]
-                    img_choice = st.radio(
-                        "Select image", img_labels,
-                        key=f"img_radio_{i}",
-                        label_visibility="collapsed",
-                    )
-                    img_idx = img_labels.index(img_choice)
-                    selected_img_url = imgs[img_idx]["url"]
-                    st.image(selected_img_url, use_container_width=True)
-
-                st.markdown("**Upload your own**")
-                uploaded = st.file_uploader(
-                    "Replace with your image", type=["jpg", "jpeg", "png", "webp"],
-                    key=f"upload_{i}", label_visibility="collapsed",
+                # ── Upload section ────────────────────────────────────────────
+                uploaded_file = st.file_uploader(
+                    "Upload your own image",
+                    type=["jpg", "jpeg", "png", "webp"],
+                    key=f"uploader_{i}",
                 )
-                if uploaded:
-                    st.image(uploaded, use_container_width=True)
-                    selected_img_url = None  # uploaded shows in preview; Buffer needs URL below
+                if uploaded_file is not None:
+                    file_key = f"{uploaded_file.name}_{uploaded_file.size}"
+                    cache = st.session_state.setdefault(f"uploads_{i}", {})
+                    if file_key not in cache:
+                        with st.spinner("Saving image…"):
+                            pub_url = _save_upload(uploaded_file)
+                        cache[file_key] = {
+                            "url": pub_url,
+                            "alt": uploaded_file.name,
+                            "source": "Upload",
+                        }
 
+                # Custom URL field
                 custom_url = st.text_input(
                     "Or paste a public image URL",
-                    value="", key=f"custom_url_{i}",
+                    key=f"custom_url_{i}",
                     placeholder="https://…",
                 )
-                if custom_url:
-                    selected_img_url = custom_url
-                    if not uploaded:
-                        st.image(custom_url, use_container_width=True)
 
-                if uploaded and not custom_url:
-                    st.caption("💡 Uploaded images need a public URL to post via Buffer. Paste one above.")
+                # ── Unified image pool ────────────────────────────────────────
+                pool = _image_pool(i, fetched)
+                if custom_url.strip():
+                    pool = pool + [{"url": custom_url.strip(), "source": "URL", "alt": "Custom URL"}]
+
+                selected_img_url = None
+                if pool:
+                    labels = _image_labels(pool)
+                    chosen = st.radio(
+                        "Select image",
+                        labels,
+                        key=f"img_select_{i}",
+                    )
+                    img_idx = labels.index(chosen)
+                    selected_img_url = pool[img_idx]["url"]
+                    st.image(selected_img_url, use_container_width=True)
+                else:
+                    st.caption("No images yet — upload one or add Pexels/Unsplash keys.")
 
                 # ── Ad mockup ─────────────────────────────────────────────────
                 st.divider()
@@ -194,9 +249,8 @@ if st.session_state.ads:
                     "description": description,
                     "cta": cta,
                 }
-                preview_url = custom_url or (selected_img_url if not uploaded else None)
                 st.components.v1.html(
-                    render_facebook_preview(preview_var, preview_url, platform),
+                    render_facebook_preview(preview_var, selected_img_url, platform),
                     height=520, scrolling=False,
                 )
 
@@ -204,7 +258,6 @@ if st.session_state.ads:
     st.divider()
     st.subheader("Publish via Buffer")
 
-    # Load channels once for the whole panel
     try:
         profiles = get_profiles()
     except Exception as e:
@@ -227,8 +280,9 @@ if st.session_state.ads:
             if "buffer_schedule" not in st.session_state:
                 with st.spinner("Fetching scheduled posts…"):
                     try:
-                        all_ids = list(profile_options.values())
-                        st.session_state.buffer_schedule = get_scheduled_posts(all_ids)
+                        st.session_state.buffer_schedule = get_scheduled_posts(
+                            list(profile_options.values())
+                        )
                     except Exception as e:
                         st.session_state.buffer_schedule = []
                         st.error(f"Could not load schedule: {e}")
@@ -238,12 +292,12 @@ if st.session_state.ads:
                 st.info("No scheduled posts found in your Buffer queue.")
             else:
                 import pandas as pd
+                from datetime import datetime, timezone
                 rows = []
                 for post in scheduled:
                     channel = post.get("channel", {})
                     raw_time = post.get("scheduledAt", "")
                     try:
-                        from datetime import datetime, timezone
                         dt = datetime.fromisoformat(raw_time.replace("Z", "+00:00"))
                         formatted = dt.strftime("%b %d, %Y  %H:%M UTC")
                     except Exception:
@@ -256,11 +310,7 @@ if st.session_state.ads:
                         "Channel": f"{channel.get('service','').title()} · {channel.get('name','')}",
                         "Post preview": preview,
                     })
-                st.dataframe(
-                    pd.DataFrame(rows),
-                    use_container_width=True,
-                    hide_index=True,
-                )
+                st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
         # ── Ad selection ──────────────────────────────────────────────────────
         st.markdown("**Select ads to publish:**")
@@ -309,15 +359,7 @@ if st.session_state.ads:
                     headline_val = st.session_state.get(f"headline_{idx}", variation.get("headline", ""))
                     post_text = f"{primary_val}\n\n👉 {headline_val}\n\nhuntwithOdin.com"
 
-                    img_url = st.session_state.get(f"custom_url_{idx}", "").strip()
-                    if not img_url and ad["images"]:
-                        radio_val = st.session_state.get(f"img_radio_{idx}")
-                        img_labels = [f"Image {j+1} · {img['source']}" for j, img in enumerate(ad["images"])]
-                        img_url = (
-                            ad["images"][img_labels.index(radio_val)]["url"]
-                            if radio_val in img_labels
-                            else ad["images"][0]["url"]
-                        )
+                    img_url = _resolve_img_url(idx, ad["images"])
 
                     label = f"{ad['format']} · {variation.get('angle', '')}"
                     with st.spinner(f"Sending {label}…"):
@@ -325,12 +367,12 @@ if st.session_state.ads:
                             post_update(
                                 profile_ids=selected_profile_ids,
                                 text=post_text,
-                                image_url=img_url or None,
+                                image_url=img_url,
                                 scheduled_at=scheduled_at_iso,
                                 now=(timing == "Post immediately"),
                             )
                             st.success(f"✓ {label} sent!")
                         except Exception as e:
                             st.error(f"✗ {label} failed: {e}")
-                # Invalidate cached schedule so it refreshes on next open
+
                 st.session_state.pop("buffer_schedule", None)
