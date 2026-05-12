@@ -7,3 +7,10 @@ enableStaticServing = true
 
 [browser]
 gatherUsageStats = false
+
+[theme]
+primaryColor = "#059669"
+backgroundColor = "#111827"
+secondaryBackgroundColor = "#1F2937"
+textColor = "#F9FAFB"
+font = "sans serif"

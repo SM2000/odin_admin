@@ -56,10 +56,156 @@ st.set_page_config(
     layout="wide",
 )
 
+st.markdown("""
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
+
+/* Hide Streamlit chrome */
+#MainMenu, footer, header { visibility: hidden; }
+
+/* Page padding */
+.main .block-container { padding-top: 1.8rem; padding-bottom: 3rem; max-width: 1280px; }
+
+/* ── Sidebar ── */
+section[data-testid="stSidebar"] {
+    background: linear-gradient(180deg, #0D1F17 0%, #0A1628 100%);
+    border-right: 1px solid #1E3A2A;
+}
+
+/* ── Buttons ── */
+.stButton > button {
+    border-radius: 8px;
+    font-weight: 600;
+    letter-spacing: 0.3px;
+    transition: all 0.18s ease;
+}
+.stButton > button:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 14px rgba(5, 150, 105, 0.35);
+}
+/* Primary buttons → emerald */
+.stButton > button[kind="primary"] {
+    background: linear-gradient(135deg, #059669 0%, #0284C7 100%);
+    border: none;
+    color: #fff;
+}
+.stButton > button[kind="primary"]:hover {
+    background: linear-gradient(135deg, #047857 0%, #0369A1 100%);
+}
+/* Secondary buttons → outlined teal */
+.stButton > button[kind="secondary"] {
+    border: 1.5px solid #059669;
+    color: #6EE7B7;
+    background: transparent;
+}
+.stButton > button[kind="secondary"]:hover {
+    background: rgba(5, 150, 105, 0.12);
+    box-shadow: 0 3px 10px rgba(5, 150, 105, 0.2);
+}
+
+/* ── Form card ── */
+div[data-testid="stForm"] {
+    background: rgba(31, 41, 55, 0.7);
+    border: 1px solid rgba(5, 150, 105, 0.25);
+    border-radius: 14px;
+    padding: 1.6rem 1.8rem;
+    backdrop-filter: blur(4px);
+}
+
+/* ── Tabs ── */
+.stTabs [data-baseweb="tab-list"] {
+    gap: 6px;
+    background: #1F2937;
+    padding: 5px;
+    border-radius: 10px;
+    border: 1px solid #374151;
+}
+.stTabs [data-baseweb="tab"] {
+    border-radius: 7px;
+    padding: 7px 16px;
+    font-weight: 500;
+    font-size: 0.85rem;
+    color: #9CA3AF;
+}
+.stTabs [aria-selected="true"] {
+    background: linear-gradient(135deg, #065F46 0%, #1E3A5F 100%) !important;
+    color: #6EE7B7 !important;
+}
+
+/* ── Expanders ── */
+details {
+    border: 1px solid rgba(5, 150, 105, 0.2) !important;
+    border-radius: 10px !important;
+    background: rgba(31, 41, 55, 0.5) !important;
+}
+details summary {
+    font-weight: 600;
+    color: #6EE7B7;
+}
+
+/* ── Inputs ── */
+div[data-testid="stTextInput"] input,
+div[data-testid="stTextArea"] textarea,
+div[data-testid="stSelectbox"] > div {
+    border-radius: 8px !important;
+    border-color: #374151 !important;
+    background: #111827 !important;
+}
+div[data-testid="stTextInput"] input:focus,
+div[data-testid="stTextArea"] textarea:focus {
+    border-color: #059669 !important;
+    box-shadow: 0 0 0 2px rgba(5, 150, 105, 0.2) !important;
+}
+
+/* ── Alerts ── */
+div[data-testid="stAlert"] {
+    border-radius: 10px;
+}
+
+/* ── Dividers ── */
+hr { border-color: #1E3A2A !important; margin: 1.2rem 0 !important; }
+
+/* ── Images ── */
+img { border-radius: 10px; }
+
+/* ── Dataframe ── */
+div[data-testid="stDataFrame"] { border-radius: 10px; overflow: hidden; }
+
+/* ── Progress bar ── */
+div[data-testid="stProgressBar"] > div > div {
+    background: linear-gradient(90deg, #059669, #0284C7) !important;
+    border-radius: 99px;
+}
+
+/* ── Checkboxes ── */
+label[data-testid="stCheckbox"] span { color: #6EE7B7; }
+
+/* ── Radio ── */
+div[data-testid="stRadio"] label { cursor: pointer; }
+
+/* ── File uploader ── */
+div[data-testid="stFileUploader"] {
+    border: 2px dashed #374151;
+    border-radius: 10px;
+    padding: 0.5rem;
+    transition: border-color 0.2s;
+}
+div[data-testid="stFileUploader"]:hover { border-color: #059669; }
+</style>
+""", unsafe_allow_html=True)
+
 with st.sidebar:
-    st.markdown("## 🦌 HuntWithOdin\n### Ad Creator")
+    st.markdown("""
+    <div style="padding: 1rem 0 0.5rem;">
+        <div style="font-size:2rem;">🦌</div>
+        <div style="font-size:1.2rem;font-weight:700;color:#6EE7B7;margin-top:4px;">HuntWithOdin</div>
+        <div style="font-size:0.8rem;color:#6B7280;letter-spacing:1.5px;text-transform:uppercase;margin-top:2px;">Ad Creator</div>
+    </div>
+    """, unsafe_allow_html=True)
     st.divider()
-    st.caption("Powered by Claude · Anthropic")
+    st.caption("Powered by Claude Opus · Anthropic")
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -105,8 +251,19 @@ def _resolve_img_url(ad_idx: int, fetched: list[dict]) -> str | None:
 
 
 # ── Campaign form ─────────────────────────────────────────────────────────────
-st.title("HuntWithOdin · Ad Creator")
-st.markdown("Select your formats and Claude will write three scroll-stopping variations for each.")
+st.markdown("""
+<div style="margin-bottom:1.5rem;">
+    <h1 style="font-size:2rem;font-weight:700;
+               background:linear-gradient(135deg,#6EE7B7 0%,#93C5FD 100%);
+               -webkit-background-clip:text;-webkit-text-fill-color:transparent;
+               margin-bottom:0.25rem;">
+        HuntWithOdin · Ad Creator
+    </h1>
+    <p style="color:#9CA3AF;font-size:1rem;margin:0;">
+        Select your formats and Claude will write three scroll-stopping variations for each.
+    </p>
+</div>
+""", unsafe_allow_html=True)
 
 with st.form("campaign_form"):
     c1, c2 = st.columns(2)
