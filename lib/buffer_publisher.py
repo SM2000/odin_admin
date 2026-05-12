@@ -100,13 +100,16 @@ def post_update(
     mutation = """
     mutation CreatePost($input: CreatePostInput!) {
       createPost(input: $input) {
-        post {
-          id
-          status
-          scheduledAt
-          text
+        __typename
+        ... on PostActionSuccess {
+          post {
+            id
+            status
+            scheduledAt
+            text
+          }
         }
-        errors {
+        ... on PostActionError {
           message
         }
       }
@@ -139,8 +142,8 @@ def post_update(
 
         data = _gql(mutation, variables)
         payload = data.get("createPost", {})
-        if payload.get("errors"):
-            raise RuntimeError(payload["errors"][0]["message"])
+        if payload.get("__typename") == "PostActionError":
+            raise RuntimeError(payload.get("message", "Buffer returned an error."))
         results.append(payload.get("post", {}))
 
     return {"posts": results}
