@@ -445,7 +445,7 @@ if st.session_state.ads:
         st.warning("No Facebook or Instagram channels found in your Buffer account.")
     else:
         profile_options = {
-            f"{p.get('service','').title()} · {p.get('name', p.get('id',''))}": p["id"]
+            f"{p.get('service','').title()} · {p.get('name', p.get('id',''))}": p
             for p in profiles
         }
 
@@ -458,7 +458,7 @@ if st.session_state.ads:
                 with st.spinner("Fetching scheduled posts…"):
                     try:
                         st.session_state.buffer_schedule = get_scheduled_posts(
-                            list(profile_options.values())
+                            [p["id"] for p in profile_options.values()]
                         )
                     except Exception as e:
                         st.session_state.buffer_schedule = []
@@ -473,7 +473,7 @@ if st.session_state.ads:
                 rows = []
                 for post in scheduled:
                     channel = post.get("channel", {})
-                    raw_time = post.get("scheduledAt", "")
+                    raw_time = post.get("dueAt", "")
                     try:
                         dt = datetime.fromisoformat(raw_time.replace("Z", "+00:00"))
                         formatted = dt.strftime("%b %d, %Y  %H:%M UTC")
@@ -505,7 +505,7 @@ if st.session_state.ads:
                 options=list(profile_options.keys()),
                 default=list(profile_options.keys()),
             )
-            selected_profile_ids = [profile_options[k] for k in chosen_profiles]
+            selected_channels = [profile_options[k] for k in chosen_profiles]
 
             # ── Scheduling ────────────────────────────────────────────────────
             st.markdown("**When to post:**")
@@ -527,7 +527,7 @@ if st.session_state.ads:
                 scheduled_at_iso = scheduled_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
                 st.caption(f"Will post at **{scheduled_at_iso}** (UTC)")
 
-            if st.button("🚀 Send to Buffer", type="primary") and selected_profile_ids:
+            if st.button("🚀 Send to Buffer", type="primary") and selected_channels:
                 for idx in selected_indices:
                     ad = ads[idx]
                     variation = ad["variation"]
@@ -542,7 +542,7 @@ if st.session_state.ads:
                     with st.spinner(f"Sending {label}…"):
                         try:
                             post_update(
-                                profile_ids=selected_profile_ids,
+                                channels=selected_channels,
                                 text=post_text,
                                 image_url=img_url,
                                 scheduled_at=scheduled_at_iso,

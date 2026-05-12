@@ -90,8 +90,16 @@ def get_scheduled_posts(channel_ids: list[str]) -> list[dict]:
     return results
 
 
+def _channel_metadata(service: str) -> dict:
+    if service == "facebook":
+        return {"facebook": {"type": "post"}}
+    if service == "instagram":
+        return {"instagram": {"type": "post", "shouldShareToFeed": True}}
+    return {}
+
+
 def post_update(
-    profile_ids: list[str],
+    channels: list[dict],
     text: str,
     image_url: str | None = None,
     scheduled_at: str | None = None,
@@ -124,7 +132,9 @@ def post_update(
         share_mode = "addToQueue"
 
     results = []
-    for channel_id in profile_ids:
+    for channel in channels:
+        channel_id = channel["id"]
+        service = channel.get("service", "")
         variables: dict = {
             "input": {
                 "channelId": channel_id,
@@ -132,6 +142,7 @@ def post_update(
                 "schedulingType": "automatic",
                 "mode": share_mode,
                 "assets": [{"image": {"url": image_url}}] if image_url else [],
+                "metadata": _channel_metadata(service),
             }
         }
         if scheduled_at:
@@ -141,7 +152,7 @@ def post_update(
         payload = data.get("createPost", {})
         if payload.get("__typename") != "PostActionSuccess":
             msg = payload.get("message", payload.get("__typename", "unknown"))
-            raise RuntimeError(f"Buffer error: {msg}")
+            raise RuntimeError(f"Buffer error ({service}): {msg}")
         results.append(payload.get("post", {}))
 
     return {"posts": results}
