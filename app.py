@@ -197,10 +197,20 @@ with st.sidebar:
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def _save_upload(uploaded_file) -> str:
-    """Save an uploaded file to static/uploads and return its public URL."""
+    """Save an uploaded file to static/uploads and return its public URL.
+    Resizes to max 1080px wide so it stays within Instagram's 5000px limit."""
+    from PIL import Image
+    import io
     ext = Path(uploaded_file.name).suffix.lower() or ".jpg"
     filename = f"{uuid.uuid4().hex}{ext}"
-    (STATIC_UPLOADS / filename).write_bytes(uploaded_file.getvalue())
+    img = Image.open(uploaded_file)
+    if img.width > 1080:
+        ratio = 1080 / img.width
+        img = img.resize((1080, int(img.height * ratio)), Image.LANCZOS)
+    buf = io.BytesIO()
+    fmt = "JPEG" if ext in (".jpg", ".jpeg") else ext.lstrip(".").upper()
+    img.save(buf, format=fmt)
+    (STATIC_UPLOADS / filename).write_bytes(buf.getvalue())
     return f"{APP_BASE_URL}/app/static/uploads/{filename}"
 
 
