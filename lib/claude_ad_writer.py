@@ -1,8 +1,6 @@
 import json
 import anthropic
 
-client = anthropic.Anthropic()
-
 SYSTEM_PROMPT = """You are a performance marketing expert specialising in Facebook and Instagram ads
 for outdoor hunting apps. You write direct-response copy that stops the scroll, speaks to hunters
 authentically, and drives app downloads and subscriptions.
@@ -67,6 +65,7 @@ Return JSON with this exact structure:
   ]
 }}"""
 
+    client = anthropic.Anthropic()
     message = client.messages.create(
         model="claude-sonnet-4-6",
         max_tokens=2048,
