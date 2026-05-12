@@ -36,6 +36,14 @@ if page == "API Settings":
         "transmitted anywhere other than the respective services."
     )
 
+    on_render = bool(os.getenv("RENDER"))
+    if on_render:
+        st.info(
+            "Running on Render — set API keys in the Render dashboard under "
+            "**Environment → Environment Variables**. Keys saved here won't persist across restarts.",
+            icon="☁️",
+        )
+
     current = dotenv_values(ENV_PATH) if os.path.exists(ENV_PATH) else {}
 
     def _get(key: str) -> str:
@@ -181,7 +189,10 @@ with st.form("campaign_form"):
         "Additional notes / angle (optional)",
         placeholder="e.g. 'focus on the tag draw success rate', 'mention it's free to start', 'use urgency around elk season opening'",
     )
-    num_images = st.slider("Images per variation", 1, 4, 2)
+    has_image_keys = bool(os.getenv("PEXELS_API_KEY") or os.getenv("UNSPLASH_ACCESS_KEY"))
+    num_images = st.slider("Images per variation", 1, 4, 2) if has_image_keys else 0
+    if not has_image_keys:
+        st.caption("💡 Add Pexels or Unsplash keys in **API Settings** to fetch real images.")
     submitted = st.form_submit_button("✨ Generate Ad Variations", type="primary", use_container_width=True)
 
 # ── Session state ─────────────────────────────────────────────────────────────
@@ -205,13 +216,14 @@ if submitted:
             st.error(f"Generation failed: {e}")
             st.stop()
 
-    with st.spinner("Fetching hunting images…"):
-        images_by_variation = []
-        for v in variations:
-            query = v.get("image_search_query", "hunting outdoor wildlife")
-            imgs = fetch_images(query, num_images)
-            images_by_variation.append(imgs)
-        st.session_state.images_by_variation = images_by_variation
+    if num_images > 0:
+        with st.spinner("Fetching hunting images…"):
+            images_by_variation = []
+            for v in variations:
+                query = v.get("image_search_query", "hunting outdoor wildlife")
+                imgs = fetch_images(query, num_images)
+                images_by_variation.append(imgs)
+            st.session_state.images_by_variation = images_by_variation
 
     st.success(f"Generated {len(variations)} ad variations!")
 
@@ -277,6 +289,8 @@ if st.session_state.variations:
                     img_idx = img_labels.index(chosen)
                     selected_img_url = imgs[img_idx]["url"]
                     st.image(selected_img_url, use_container_width=True)
+                else:
+                    st.caption("No images — add Pexels or Unsplash keys in API Settings.")
 
                 preview_variation = {
                     "primary_text": st.session_state.get(f"primary_{i}", variation.get("primary_text", "")),
@@ -296,7 +310,9 @@ if st.session_state.variations:
     if not selected:
         st.info("Select a variation above to publish it.")
     elif not os.getenv("BUFFER_ACCESS_TOKEN"):
-        st.warning("Add your Buffer access token in **API Settings**.")
+        st.warning("Add your Buffer access token in **API Settings** to post directly.")
+        st.markdown("**Post text (copy manually):**")
+        st.code(selected["post_text"], language=None)
     else:
         st.markdown(f"**Publishing:** Variation {selected['index']+1}")
 
