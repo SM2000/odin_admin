@@ -26,16 +26,28 @@ def _gql(query: str, variables: dict | None = None) -> dict:
     return data.get("data", {})
 
 
+def _get_org_id() -> str:
+    data = _gql("query { account { organizations { id } } }")
+    orgs = data.get("account", {}).get("organizations", [])
+    if not orgs:
+        raise RuntimeError("No Buffer organizations found on this account.")
+    return orgs[0]["id"]
+
+
 def get_channels() -> list[dict]:
-    data = _gql("""
-    query {
-      channels {
-        id
-        name
-        service
-      }
-    }
-    """)
+    org_id = _get_org_id()
+    data = _gql(
+        """
+        query GetChannels($input: ChannelsInput!) {
+          channels(input: $input) {
+            id
+            name
+            service
+          }
+        }
+        """,
+        {"input": {"organizationId": org_id}},
+    )
     channels = data.get("channels", [])
     return [c for c in channels if c.get("service") in ("facebook", "instagram")]
 
