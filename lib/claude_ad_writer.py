@@ -16,6 +16,9 @@ HuntWithOdin context:
 Always write like a hunter talking to another hunter. No corporate speak. Be specific. Be bold.
 Return ONLY valid JSON."""
 
+# Try Sonnet first; fall back to Haiku if Sonnet is overloaded.
+_MODELS = ["claude-sonnet-4-6", "claude-haiku-4-5-20251001"]
+
 
 def generate_ad_variations(
     goal: str,
@@ -65,18 +68,32 @@ Return JSON with this exact structure:
   ]
 }}"""
 
-    client = anthropic.Anthropic(max_retries=4)
-    message = client.messages.create(
-        model="claude-sonnet-4-6",
-        max_tokens=2048,
-        system=SYSTEM_PROMPT,
-        messages=[{"role": "user", "content": prompt}],
-    )
+    client = anthropic.Anthropic(max_retries=3)
+    last_error: Exception | None = None
 
-    raw = message.content[0].text.strip()
-    if raw.startswith("```"):
-        raw = raw.split("```")[1]
-        if raw.startswith("json"):
-            raw = raw[4:]
-    data = json.loads(raw.strip())
-    return data.get("variations", [])
+    for model in _MODELS:
+        try:
+            message = client.messages.create(
+                model=model,
+                max_tokens=2048,
+                system=SYSTEM_PROMPT,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            raw = message.content[0].text.strip()
+            if raw.startswith("```"):
+                raw = raw.split("```")[1]
+                if raw.startswith("json"):
+                    raw = raw[4:]
+            data = json.loads(raw.strip())
+            return data.get("variations", [])
+
+        except anthropic.APIStatusError as e:
+            if e.status_code == 529:
+                last_error = e
+                continue  # try next model
+            raise
+        except anthropic.APIConnectionError as e:
+            last_error = e
+            continue
+
+    raise last_error or RuntimeError("All Claude models unavailable.")

@@ -12,6 +12,39 @@ from lib.image_fetcher import fetch_images
 from lib.ad_previewer import render_facebook_preview
 from lib.buffer_publisher import get_profiles, post_update, get_scheduled_posts
 
+
+def _show_error(friendly: str, detail: str = "") -> None:
+    """Show a user-friendly error with an optional collapsible debug block."""
+    st.error(friendly)
+    if detail:
+        with st.expander("Debug info — paste this when reporting an issue"):
+            st.code(detail, language=None)
+
+
+def _friendly_claude_error(exc: Exception, context: str = "") -> tuple[str, str]:
+    """Return (friendly message, raw detail) for a Claude API error."""
+    raw = str(exc)
+    if "529" in raw or "overloaded" in raw.lower():
+        friendly = (
+            "Claude's servers are temporarily busy and couldn't generate your ads. "
+            "This usually clears up within a minute — please try again."
+        )
+    elif "401" in raw or "authentication" in raw.lower() or "api_key" in raw.lower():
+        friendly = (
+            "Anthropic API key problem. Check that ANTHROPIC_API_KEY is set correctly "
+            "in your Render environment variables."
+        )
+    elif "429" in raw or "rate_limit" in raw.lower():
+        friendly = "Too many requests sent to Claude at once. Wait 30 seconds and try again."
+    elif "connection" in raw.lower() or "timeout" in raw.lower():
+        friendly = "Couldn't reach Claude's servers — check your internet connection and try again."
+    else:
+        friendly = (
+            f"Claude couldn't generate ads{' for ' + context if context else ''}. "
+            "Try adjusting your inputs or try again in a moment."
+        )
+    return friendly, f"Context: {context}\n{raw}"
+
 STATIC_UPLOADS = Path(__file__).parent / "static" / "uploads"
 STATIC_UPLOADS.mkdir(parents=True, exist_ok=True)
 
@@ -137,7 +170,8 @@ if submitted:
         try:
             variations = generate_ad_variations(goal, audience, fmt, angle_notes, platform)
         except Exception as e:
-            st.error(f"Generation failed for {fmt}: {e}")
+            friendly, detail = _friendly_claude_error(e, fmt)
+            _show_error(friendly, detail)
             st.stop()
 
         for v in variations:
@@ -373,6 +407,13 @@ if st.session_state.ads:
                             )
                             st.success(f"✓ {label} sent!")
                         except Exception as e:
-                            st.error(f"✗ {label} failed: {e}")
+                            raw = str(e)
+                            if "401" in raw or "403" in raw:
+                                msg = "Buffer rejected the request — check your BUFFER_ACCESS_TOKEN in Render."
+                            elif "channel" in raw.lower():
+                                msg = "Buffer couldn't find the selected channel. Try refreshing and reselecting."
+                            else:
+                                msg = f"Buffer couldn't publish this ad. Try again in a moment."
+                            _show_error(f"✗ {label} failed: {msg}", raw)
 
                 st.session_state.pop("buffer_schedule", None)
