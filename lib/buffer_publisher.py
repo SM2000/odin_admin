@@ -12,33 +12,34 @@ def _headers() -> dict:
     }
 
 
+def _gql(query: str, variables: dict | None = None) -> dict:
+    payload = {"query": query}
+    if variables:
+        payload["variables"] = variables
+    resp = requests.post(GRAPHQL_ENDPOINT, headers=_headers(), json=payload, timeout=15)
+    # Surface the actual API error body, not just the HTTP status
+    if not resp.ok:
+        raise RuntimeError(f"HTTP {resp.status_code}: {resp.text[:400]}")
+    data = resp.json()
+    if "errors" in data:
+        raise RuntimeError(data["errors"][0]["message"])
+    return data.get("data", {})
+
+
 def get_channels() -> list[dict]:
-    query = """
-    query GetChannels {
+    data = _gql("""
+    query {
       channels {
         id
         name
         service
-        serviceType
-        avatar
       }
     }
-    """
-    resp = requests.post(
-        GRAPHQL_ENDPOINT,
-        headers=_headers(),
-        json={"query": query},
-        timeout=10,
-    )
-    resp.raise_for_status()
-    data = resp.json()
-    if "errors" in data:
-        raise RuntimeError(data["errors"][0]["message"])
-    channels = data.get("data", {}).get("channels", [])
+    """)
+    channels = data.get("channels", [])
     return [c for c in channels if c.get("service") in ("facebook", "instagram")]
 
 
-# Keep old name so app.py import doesn't break
 def get_profiles() -> list[dict]:
     return get_channels()
 
@@ -50,7 +51,6 @@ def post_update(
     scheduled_at: str | None = None,
     now: bool = False,
 ) -> dict:
-    """Post or queue an update to each channel via the Buffer GraphQL API."""
     mutation = """
     mutation CreatePost($input: CreatePostInput!) {
       createPost(input: $input) {
@@ -65,7 +65,6 @@ def post_update(
       }
     }
     """
-
     mode = "SHARE_NOW" if now else "QUEUE"
     results = []
 
@@ -86,17 +85,8 @@ def post_update(
         if scheduled_at and not now:
             variables["input"]["scheduledAt"] = scheduled_at
 
-        resp = requests.post(
-            GRAPHQL_ENDPOINT,
-            headers=_headers(),
-            json={"query": mutation, "variables": variables},
-            timeout=15,
-        )
-        resp.raise_for_status()
-        data = resp.json()
-        if "errors" in data:
-            raise RuntimeError(data["errors"][0]["message"])
-        payload = data.get("data", {}).get("createPost", {})
+        data = _gql(mutation, variables)
+        payload = data.get("createPost", {})
         if payload.get("errors"):
             raise RuntimeError(payload["errors"][0]["message"])
         results.append(payload.get("post", {}))
