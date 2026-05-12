@@ -21,12 +21,12 @@ with st.sidebar:
     st.divider()
     st.caption("Powered by Claude · Anthropic")
 
-# ── Campaign inputs ───────────────────────────────────────────────────────────
 st.title("HuntWithOdin · Ad Creator")
-st.markdown("Describe your campaign and Claude will write three scroll-stopping ad variations.")
+st.markdown("Select your formats and Claude will write three scroll-stopping variations for each.")
 
+# ── Campaign form ─────────────────────────────────────────────────────────────
 with st.form("campaign_form"):
-    c1, c2, c3 = st.columns(3)
+    c1, c2 = st.columns(2)
     with c1:
         goal = st.selectbox(
             "Campaign goal",
@@ -37,11 +37,13 @@ with st.form("campaign_form"):
             "Platform",
             ["Facebook", "Instagram", "Both (Facebook + Instagram)"],
         )
-    with c3:
-        ad_format = st.selectbox(
-            "Ad format",
-            ["Facebook Feed", "Instagram Feed", "Facebook Story", "Instagram Story", "Carousel"],
-        )
+
+    ad_formats = st.multiselect(
+        "Ad formats",
+        ["Facebook Feed", "Instagram Feed", "Facebook Story", "Instagram Story", "Carousel"],
+        default=["Facebook Feed"],
+        help="Claude generates 3 variations per format selected.",
+    )
 
     audience = st.selectbox(
         "Primary audience",
@@ -59,122 +61,159 @@ with st.form("campaign_form"):
     )
     angle_notes = st.text_input(
         "Additional notes / angle (optional)",
-        placeholder="e.g. 'focus on the tag draw success rate', 'mention it's free to start', 'use urgency around elk season opening'",
+        placeholder="e.g. 'focus on tag draw success rate', 'mention it's free to start'",
     )
+
     has_image_keys = bool(os.getenv("PEXELS_API_KEY") or os.getenv("UNSPLASH_ACCESS_KEY"))
-    num_images = st.slider("Images per variation", 1, 4, 2) if has_image_keys else 0
-    submitted = st.form_submit_button("✨ Generate Ad Variations", type="primary", use_container_width=True)
+    num_images = st.slider("Images to fetch per ad", 1, 4, 2) if has_image_keys else 0
+
+    submitted = st.form_submit_button("✨ Generate Ads", type="primary", use_container_width=True)
 
 # ── Session state ─────────────────────────────────────────────────────────────
-for key in ("variations", "images_by_variation", "selected_variation"):
-    if key not in st.session_state:
-        st.session_state[key] = None if key == "selected_variation" else []
+if "ads" not in st.session_state:
+    st.session_state.ads = []
 
 # ── Generation ────────────────────────────────────────────────────────────────
 if submitted:
-    with st.spinner("Claude is writing your ad variations…"):
+    if not ad_formats:
+        st.error("Select at least one ad format.")
+        st.stop()
+
+    all_ads = []
+    progress = st.progress(0, text="Starting…")
+
+    for fi, fmt in enumerate(ad_formats):
+        progress.progress(fi / len(ad_formats), text=f"Writing {fmt} variations…")
         try:
-            variations = generate_ad_variations(goal, audience, ad_format, angle_notes, platform)
-            st.session_state.variations = variations
-            st.session_state.images_by_variation = []
-            st.session_state.selected_variation = None
+            variations = generate_ad_variations(goal, audience, fmt, angle_notes, platform)
         except Exception as e:
-            st.error(f"Generation failed: {e}")
+            st.error(f"Generation failed for {fmt}: {e}")
             st.stop()
 
-    if num_images > 0:
-        with st.spinner("Fetching hunting images…"):
-            images_by_variation = []
-            for v in variations:
-                query = v.get("image_search_query", "hunting outdoor wildlife")
-                imgs = fetch_images(query, num_images)
-                images_by_variation.append(imgs)
-            st.session_state.images_by_variation = images_by_variation
+        for v in variations:
+            imgs = []
+            if num_images > 0:
+                imgs = fetch_images(v.get("image_search_query", "hunting outdoor wildlife"), num_images)
+            all_ads.append({
+                "format": fmt,
+                "variation": v,
+                "images": imgs,
+            })
 
-    st.success(f"Generated {len(variations)} ad variations!")
+    progress.empty()
+    st.session_state.ads = all_ads
+    st.success(f"Generated {len(all_ads)} ads across {len(ad_formats)} format(s)!")
 
-# ── Display variations ────────────────────────────────────────────────────────
-if st.session_state.variations:
-    variations = st.session_state.variations
-    images_by_variation = st.session_state.images_by_variation
+# ── Display ads ───────────────────────────────────────────────────────────────
+if st.session_state.ads:
+    ads = st.session_state.ads
 
     st.divider()
-    st.subheader("Ad Variations")
+    st.subheader("Your Ads")
 
-    tabs = st.tabs([f"Variation {i+1} · {v.get('angle','')}" for i, v in enumerate(variations)])
+    tab_labels = [
+        f"{ad['format']} · {ad['variation'].get('angle', f'V{i+1}')}"
+        for i, ad in enumerate(ads)
+    ]
+    tabs = st.tabs(tab_labels)
 
-    for i, (tab, variation) in enumerate(zip(tabs, variations)):
-        imgs = images_by_variation[i] if i < len(images_by_variation) else []
+    for i, (tab, ad) in enumerate(zip(tabs, ads)):
+        variation = ad["variation"]
+        imgs = ad["images"]
 
         with tab:
-            col_preview, col_copy = st.columns([1, 1])
+            col_copy, col_preview = st.columns([1, 1])
 
             with col_copy:
-                st.markdown(f"**Angle:** {variation.get('angle','')}")
-                st.markdown(f"**Hook:** *{variation.get('hook','')}*")
+                st.markdown(f"**Format:** {ad['format']}")
+                st.markdown(f"**Hook:** *{variation.get('hook', '')}*")
                 st.divider()
 
                 primary = st.text_area(
-                    "Primary text",
-                    value=variation.get("primary_text", ""),
-                    height=140,
-                    key=f"primary_{i}",
+                    "Primary text", value=variation.get("primary_text", ""),
+                    height=140, key=f"primary_{i}",
                 )
-                headline = st.text_input("Headline", value=variation.get("headline", ""), key=f"headline_{i}")
-                description = st.text_input("Description", value=variation.get("description", ""), key=f"desc_{i}")
+                headline = st.text_input(
+                    "Headline", value=variation.get("headline", ""), key=f"headline_{i}",
+                )
+                description = st.text_input(
+                    "Description", value=variation.get("description", ""), key=f"desc_{i}",
+                )
+                ctas = ["Learn More", "Download", "Sign Up", "Get Started", "Try Free", "Shop Now"]
                 cta = st.selectbox(
-                    "CTA button",
-                    ["Learn More", "Download", "Sign Up", "Get Started", "Try Free", "Shop Now"],
-                    index=["Learn More", "Download", "Sign Up", "Get Started", "Try Free", "Shop Now"].index(
-                        variation.get("cta", "Learn More")
-                    ) if variation.get("cta") in ["Learn More", "Download", "Sign Up", "Get Started", "Try Free", "Shop Now"] else 0,
+                    "CTA button", ctas,
+                    index=ctas.index(variation.get("cta", "Learn More"))
+                    if variation.get("cta") in ctas else 0,
                     key=f"cta_{i}",
                 )
 
-                post_text = f"{primary}\n\n👉 {headline}\n\nhuntwithOdin.com"
-
-                if st.button(f"Select Variation {i+1} for Publishing", key=f"select_{i}", type="secondary"):
-                    st.session_state.selected_variation = {
-                        "index": i,
-                        "primary_text": primary,
-                        "headline": headline,
-                        "description": description,
-                        "cta": cta,
-                        "post_text": post_text,
-                        "images": imgs,
-                    }
-                    st.success(f"Variation {i+1} selected. Scroll down to publish.")
-
             with col_preview:
-                st.markdown("**Preview**")
+                # ── Image picker ──────────────────────────────────────────────
                 selected_img_url = None
+
                 if imgs:
-                    img_labels = [f"Image {j+1} ({img['source']})" for j, img in enumerate(imgs)]
-                    chosen = st.radio("Choose image", img_labels, key=f"img_radio_{i}")
-                    img_idx = img_labels.index(chosen)
+                    st.markdown("**Fetched images**")
+                    img_labels = [f"Image {j+1} · {img['source']}" for j, img in enumerate(imgs)]
+                    img_choice = st.radio(
+                        "Select image", img_labels,
+                        key=f"img_radio_{i}",
+                        label_visibility="collapsed",
+                    )
+                    img_idx = img_labels.index(img_choice)
                     selected_img_url = imgs[img_idx]["url"]
                     st.image(selected_img_url, use_container_width=True)
 
-                preview_variation = {
-                    "primary_text": st.session_state.get(f"primary_{i}", variation.get("primary_text", "")),
-                    "headline": st.session_state.get(f"headline_{i}", variation.get("headline", "")),
-                    "description": st.session_state.get(f"desc_{i}", variation.get("description", "")),
-                    "cta": st.session_state.get(f"cta_{i}", variation.get("cta", "Learn More")),
+                st.markdown("**Upload your own**")
+                uploaded = st.file_uploader(
+                    "Replace with your image", type=["jpg", "jpeg", "png", "webp"],
+                    key=f"upload_{i}", label_visibility="collapsed",
+                )
+                if uploaded:
+                    st.image(uploaded, use_container_width=True)
+                    selected_img_url = None  # uploaded shows in preview; Buffer needs URL below
+
+                custom_url = st.text_input(
+                    "Or paste a public image URL",
+                    value="", key=f"custom_url_{i}",
+                    placeholder="https://…",
+                )
+                if custom_url:
+                    selected_img_url = custom_url
+                    if not uploaded:
+                        st.image(custom_url, use_container_width=True)
+
+                if uploaded and not custom_url:
+                    st.caption("💡 Uploaded images need a public URL to post via Buffer. Paste one above.")
+
+                # ── Ad mockup ─────────────────────────────────────────────────
+                st.divider()
+                st.markdown("**Ad mockup**")
+                preview_var = {
+                    "primary_text": primary,
+                    "headline": headline,
+                    "description": description,
+                    "cta": cta,
                 }
-                html_preview = render_facebook_preview(preview_variation, selected_img_url, platform)
-                st.markdown("**Ad card mockup**")
-                st.components.v1.html(html_preview, height=560, scrolling=False)
+                preview_url = custom_url or (selected_img_url if not uploaded else None)
+                st.components.v1.html(
+                    render_facebook_preview(preview_var, preview_url, platform),
+                    height=520, scrolling=False,
+                )
 
     # ── Publish panel ─────────────────────────────────────────────────────────
     st.divider()
     st.subheader("Publish via Buffer")
+    st.markdown("Check the ads you want to send, then choose your channels.")
 
-    selected = st.session_state.selected_variation
-    if not selected:
-        st.info("Select a variation above to publish it.")
-    else:
-        st.markdown(f"**Publishing:** Variation {selected['index']+1}")
+    selected_indices = [
+        i for i, ad in enumerate(ads)
+        if st.checkbox(
+            f"{ad['format']} · {ad['variation'].get('angle', f'V{i+1}')}",
+            key=f"sel_{i}",
+        )
+    ]
 
+    if selected_indices:
         try:
             profiles = get_profiles()
         except Exception as e:
@@ -189,35 +228,44 @@ if st.session_state.variations:
                 for p in profiles
             }
             chosen_profiles = st.multiselect(
-                "Post to", options=list(profile_options.keys()),
+                "Post to channels",
+                options=list(profile_options.keys()),
                 default=list(profile_options.keys()),
             )
             selected_profile_ids = [profile_options[k] for k in chosen_profiles]
 
-            pub_img_url = None
-            if selected["images"]:
-                pub_img_labels = [f"Image {j+1} ({img['source']})" for j, img in enumerate(selected["images"])]
-                pub_img_choice = st.radio("Image to attach", pub_img_labels, key="pub_img")
-                pub_img_idx = pub_img_labels.index(pub_img_choice)
-                pub_img_url = selected["images"][pub_img_idx]["url"]
-
             post_now = st.checkbox("Post immediately (skip queue)", value=False)
             if not post_now:
-                st.caption("The post will be added to your Buffer queue at its next scheduled slot.")
-
-            with st.expander("Preview post text"):
-                st.text(selected["post_text"])
+                st.caption("Posts will be added to your Buffer queue at scheduled slots.")
 
             if st.button("🚀 Send to Buffer", type="primary") and selected_profile_ids:
-                with st.spinner("Sending to Buffer…"):
-                    try:
-                        result = post_update(
-                            profile_ids=selected_profile_ids,
-                            text=selected["post_text"],
-                            image_url=pub_img_url,
-                            now=post_now,
-                        )
-                        st.success("Posted to Buffer successfully!")
-                        st.json(result)
-                    except Exception as e:
-                        st.error(f"Buffer post failed: {e}")
+                for idx in selected_indices:
+                    ad = ads[idx]
+                    variation = ad["variation"]
+
+                    primary_val = st.session_state.get(f"primary_{idx}", variation.get("primary_text", ""))
+                    headline_val = st.session_state.get(f"headline_{idx}", variation.get("headline", ""))
+                    post_text = f"{primary_val}\n\n👉 {headline_val}\n\nhuntwithOdin.com"
+
+                    # Resolve image URL: custom URL wins, then selected fetched image
+                    img_url = st.session_state.get(f"custom_url_{idx}", "").strip()
+                    if not img_url and ad["images"]:
+                        radio_val = st.session_state.get(f"img_radio_{idx}")
+                        img_labels = [f"Image {j+1} · {img['source']}" for j, img in enumerate(ad["images"])]
+                        if radio_val in img_labels:
+                            img_url = ad["images"][img_labels.index(radio_val)]["url"]
+                        else:
+                            img_url = ad["images"][0]["url"]
+
+                    label = f"{ad['format']} · {variation.get('angle', '')}"
+                    with st.spinner(f"Sending {label}…"):
+                        try:
+                            post_update(
+                                profile_ids=selected_profile_ids,
+                                text=post_text,
+                                image_url=img_url or None,
+                                now=post_now,
+                            )
+                            st.success(f"✓ {label} sent!")
+                        except Exception as e:
+                            st.error(f"✗ {label} failed: {e}")

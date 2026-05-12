@@ -56,11 +56,17 @@ def _fetch_unsplash(query: str, count: int) -> list[dict]:
 
 
 def fetch_images(query: str, count: int = 4) -> list[dict]:
-    half = max(1, count // 2)
-    images = _fetch_pexels(query, half) + _fetch_unsplash(query, count - half)
-    # Pad from either source if the other failed
-    if len(images) < count:
-        images += _fetch_pexels(query, count - len(images))
-    if len(images) < count:
-        images += _fetch_unsplash(query, count - len(images))
+    has_pexels = bool(os.getenv("PEXELS_API_KEY"))
+    has_unsplash = bool(os.getenv("UNSPLASH_ACCESS_KEY"))
+
+    if has_pexels and has_unsplash:
+        half = max(1, count // 2)
+        images = _fetch_pexels(query, half) + _fetch_unsplash(query, count - half)
+    elif has_pexels:
+        images = _fetch_pexels(query, count)
+    elif has_unsplash:
+        images = _fetch_unsplash(query, count)
+    else:
+        images = []
+
     return images[:count]
