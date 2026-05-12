@@ -108,6 +108,11 @@ def post_update(
             text
           }
         }
+        ... on UnexpectedError { message }
+        ... on InvalidInputError { message }
+        ... on LimitReachedError { message }
+        ... on UnauthorizedError { message }
+        ... on NotFoundError { message }
       }
     }
     """
@@ -118,10 +123,6 @@ def post_update(
     else:
         share_mode = "addToQueue"
 
-    assets = []
-    if image_url:
-        assets = [{"image": {"url": image_url, "thumbnailUrl": image_url}}]
-
     results = []
     for channel_id in profile_ids:
         variables: dict = {
@@ -130,7 +131,7 @@ def post_update(
                 "text": text,
                 "schedulingType": "automatic",
                 "mode": share_mode,
-                "assets": assets,
+                "assets": [{"image": {"url": image_url}}] if image_url else [],
             }
         }
         if scheduled_at:
@@ -139,7 +140,8 @@ def post_update(
         data = _gql(mutation, variables)
         payload = data.get("createPost", {})
         if payload.get("__typename") != "PostActionSuccess":
-            raise RuntimeError(f"Buffer returned unexpected response: {payload.get('__typename')}")
+            msg = payload.get("message", payload.get("__typename", "unknown"))
+            raise RuntimeError(f"Buffer error: {msg}")
         results.append(payload.get("post", {}))
 
     return {"posts": results}
