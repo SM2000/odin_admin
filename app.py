@@ -203,30 +203,76 @@ if st.session_state.ads:
     # ── Publish panel ─────────────────────────────────────────────────────────
     st.divider()
     st.subheader("Publish via Buffer")
-    st.markdown("Check the ads you want to send, then choose your channels.")
 
-    selected_indices = [
-        i for i, ad in enumerate(ads)
-        if st.checkbox(
-            f"{ad['format']} · {ad['variation'].get('angle', f'V{i+1}')}",
-            key=f"sel_{i}",
-        )
-    ]
+    # Load channels once for the whole panel
+    try:
+        profiles = get_profiles()
+    except Exception as e:
+        st.error(f"Could not load Buffer channels: {e}")
+        profiles = []
 
-    if selected_indices:
-        try:
-            profiles = get_profiles()
-        except Exception as e:
-            st.error(f"Could not load Buffer channels: {e}")
-            profiles = []
+    if not profiles:
+        st.warning("No Facebook or Instagram channels found in your Buffer account.")
+    else:
+        profile_options = {
+            f"{p.get('service','').title()} · {p.get('name', p.get('id',''))}": p["id"]
+            for p in profiles
+        }
 
-        if not profiles:
-            st.warning("No Facebook or Instagram channels found in your Buffer account.")
-        else:
-            profile_options = {
-                f"{p.get('service','').title()} · {p.get('name', p.get('id',''))}": p["id"]
-                for p in profiles
-            }
+        # ── Existing schedule viewer ──────────────────────────────────────────
+        with st.expander("📅 View existing Buffer schedule", expanded=False):
+            if st.button("Refresh schedule"):
+                st.session_state.pop("buffer_schedule", None)
+
+            if "buffer_schedule" not in st.session_state:
+                with st.spinner("Fetching scheduled posts…"):
+                    try:
+                        all_ids = list(profile_options.values())
+                        st.session_state.buffer_schedule = get_scheduled_posts(all_ids)
+                    except Exception as e:
+                        st.session_state.buffer_schedule = []
+                        st.error(f"Could not load schedule: {e}")
+
+            scheduled = st.session_state.get("buffer_schedule", [])
+            if not scheduled:
+                st.info("No scheduled posts found in your Buffer queue.")
+            else:
+                import pandas as pd
+                rows = []
+                for post in scheduled:
+                    channel = post.get("channel", {})
+                    raw_time = post.get("scheduledAt", "")
+                    try:
+                        from datetime import datetime, timezone
+                        dt = datetime.fromisoformat(raw_time.replace("Z", "+00:00"))
+                        formatted = dt.strftime("%b %d, %Y  %H:%M UTC")
+                    except Exception:
+                        formatted = raw_time
+                    preview = (post.get("text") or "")[:80]
+                    if len(post.get("text") or "") > 80:
+                        preview += "…"
+                    rows.append({
+                        "Scheduled (UTC)": formatted,
+                        "Channel": f"{channel.get('service','').title()} · {channel.get('name','')}",
+                        "Post preview": preview,
+                    })
+                st.dataframe(
+                    pd.DataFrame(rows),
+                    use_container_width=True,
+                    hide_index=True,
+                )
+
+        # ── Ad selection ──────────────────────────────────────────────────────
+        st.markdown("**Select ads to publish:**")
+        selected_indices = [
+            i for i, ad in enumerate(ads)
+            if st.checkbox(
+                f"{ad['format']} · {ad['variation'].get('angle', f'V{i+1}')}",
+                key=f"sel_{i}",
+            )
+        ]
+
+        if selected_indices:
             chosen_profiles = st.multiselect(
                 "Post to channels",
                 options=list(profile_options.keys()),
@@ -234,9 +280,25 @@ if st.session_state.ads:
             )
             selected_profile_ids = [profile_options[k] for k in chosen_profiles]
 
-            post_now = st.checkbox("Post immediately (skip queue)", value=False)
-            if not post_now:
-                st.caption("Posts will be added to your Buffer queue at scheduled slots.")
+            # ── Scheduling ────────────────────────────────────────────────────
+            st.markdown("**When to post:**")
+            timing = st.radio(
+                "Timing",
+                ["Add to queue (next available slot)", "Post immediately", "Schedule for specific date & time"],
+                label_visibility="collapsed",
+            )
+
+            scheduled_at_iso = None
+            if timing == "Schedule for specific date & time":
+                from datetime import date, time, datetime, timezone
+                dcol, tcol = st.columns(2)
+                with dcol:
+                    chosen_date = st.date_input("Date", value=date.today(), min_value=date.today())
+                with tcol:
+                    chosen_time = st.time_input("Time (UTC)", value=time(9, 0))
+                scheduled_dt = datetime.combine(chosen_date, chosen_time, tzinfo=timezone.utc)
+                scheduled_at_iso = scheduled_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+                st.caption(f"Will post at **{scheduled_at_iso}** (UTC)")
 
             if st.button("🚀 Send to Buffer", type="primary") and selected_profile_ids:
                 for idx in selected_indices:
@@ -247,15 +309,15 @@ if st.session_state.ads:
                     headline_val = st.session_state.get(f"headline_{idx}", variation.get("headline", ""))
                     post_text = f"{primary_val}\n\n👉 {headline_val}\n\nhuntwithOdin.com"
 
-                    # Resolve image URL: custom URL wins, then selected fetched image
                     img_url = st.session_state.get(f"custom_url_{idx}", "").strip()
                     if not img_url and ad["images"]:
                         radio_val = st.session_state.get(f"img_radio_{idx}")
                         img_labels = [f"Image {j+1} · {img['source']}" for j, img in enumerate(ad["images"])]
-                        if radio_val in img_labels:
-                            img_url = ad["images"][img_labels.index(radio_val)]["url"]
-                        else:
-                            img_url = ad["images"][0]["url"]
+                        img_url = (
+                            ad["images"][img_labels.index(radio_val)]["url"]
+                            if radio_val in img_labels
+                            else ad["images"][0]["url"]
+                        )
 
                     label = f"{ad['format']} · {variation.get('angle', '')}"
                     with st.spinner(f"Sending {label}…"):
@@ -264,8 +326,11 @@ if st.session_state.ads:
                                 profile_ids=selected_profile_ids,
                                 text=post_text,
                                 image_url=img_url or None,
-                                now=post_now,
+                                scheduled_at=scheduled_at_iso,
+                                now=(timing == "Post immediately"),
                             )
                             st.success(f"✓ {label} sent!")
                         except Exception as e:
                             st.error(f"✗ {label} failed: {e}")
+                # Invalidate cached schedule so it refreshes on next open
+                st.session_state.pop("buffer_schedule", None)

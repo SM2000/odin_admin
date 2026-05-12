@@ -17,7 +17,6 @@ def _gql(query: str, variables: dict | None = None) -> dict:
     if variables:
         payload["variables"] = variables
     resp = requests.post(GRAPHQL_ENDPOINT, headers=_headers(), json=payload, timeout=15)
-    # Surface the actual API error body, not just the HTTP status
     if not resp.ok:
         raise RuntimeError(f"HTTP {resp.status_code}: {resp.text[:400]}")
     data = resp.json()
@@ -56,6 +55,41 @@ def get_profiles() -> list[dict]:
     return get_channels()
 
 
+def get_scheduled_posts(channel_ids: list[str]) -> list[dict]:
+    """Return upcoming scheduled posts across the given channels."""
+    query = """
+    query GetPosts($input: PostsInput!) {
+      posts(input: $input) {
+        edges {
+          node {
+            id
+            text
+            status
+            scheduledAt
+            channel {
+              id
+              name
+              service
+            }
+          }
+        }
+      }
+    }
+    """
+    results = []
+    for channel_id in channel_ids:
+        try:
+            data = _gql(query, {"input": {"channelId": channel_id, "status": "scheduled"}})
+            edges = data.get("posts", {}).get("edges", [])
+            results.extend(edge["node"] for edge in edges if edge.get("node"))
+        except Exception:
+            # Skip channels that error — still show others
+            continue
+    # Sort by scheduledAt ascending
+    results.sort(key=lambda p: p.get("scheduledAt") or "")
+    return results
+
+
 def post_update(
     profile_ids: list[str],
     text: str,
@@ -69,6 +103,7 @@ def post_update(
         post {
           id
           status
+          scheduledAt
           text
         }
         errors {
@@ -77,13 +112,18 @@ def post_update(
       }
     }
     """
-    mode = "SHARE_NOW" if now else "QUEUE"
-    results = []
+    if now:
+        mode = "SHARE_NOW"
+    elif scheduled_at:
+        mode = "CUSTOM"
+    else:
+        mode = "QUEUE"
 
     assets = []
     if image_url:
         assets = [{"image": {"url": image_url, "thumbnailUrl": image_url}}]
 
+    results = []
     for channel_id in profile_ids:
         variables: dict = {
             "input": {
@@ -94,7 +134,7 @@ def post_update(
         }
         if assets:
             variables["input"]["assets"] = assets
-        if scheduled_at and not now:
+        if scheduled_at:
             variables["input"]["scheduledAt"] = scheduled_at
 
         data = _gql(mutation, variables)
